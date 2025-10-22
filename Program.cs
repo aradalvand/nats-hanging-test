@@ -6,7 +6,7 @@ var nats = new NatsClient();
 var jetStream = nats.CreateJetStreamContext();
 try
 {
-    await jetStream.DeleteStreamAsync("ISTGITSATEST");
+    await jetStream.DeleteStreamAsync("NATS_HANGING_ISSUE");
     Console.WriteLine("DELETED.");
 }
 catch
@@ -14,8 +14,8 @@ catch
 }
 
 var stream = await jetStream.CreateOrUpdateStreamAsync(new(
-    name: "ISTGITSATEST",
-    subjects: [$"ISTGITSATEST.>"]
+    name: "NATS_HANGING_ISSUE",
+    subjects: [$"NATS_HANGING_ISSUE.>"]
 )
 {
     MaxMsgsPerSubject = 1,
@@ -26,8 +26,8 @@ var stream = await jetStream.CreateOrUpdateStreamAsync(new(
 });
 
 foreach (var _ in Enumerable.Range(1, 1_000))
-    await jetStream.PublishAsync($"ISTGITSATEST.{Guid.NewGuid()}", 123);
-await Task.Delay(1_000);
+    await jetStream.PublishAsync($"NATS_HANGING_ISSUE.{Guid.NewGuid()}", 123);
+
 while (true)
 {
     var cts = new CancellationTokenSource();
@@ -39,13 +39,13 @@ while (true)
 
 async Task SpawnConsumer(int i, CancellationToken ct)
 {
-    // TestState.Current.Value = i;
     Console.WriteLine($"({i}) STARTED");
     try
     {
         var consumer = await stream.CreateOrUpdateConsumerAsync(new("foo"));
         while (!ct.IsCancellationRequested)
         {
+            // NOTE: If `1` is changed to any greater number (including `2`), the problem will go away.
             var enumerable = consumer.FetchNoWaitAsync<int>(new() { MaxMsgs = 1 }, cancellationToken: ct);
             var anything = false;
             await foreach (var item in enumerable)
