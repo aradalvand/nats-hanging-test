@@ -28,8 +28,18 @@ var stream = await jetStream.CreateOrUpdateStreamAsync(new(
 foreach (var _ in Enumerable.Range(1, 10_000))
     await jetStream.PublishAsync($"NATS_HANGING_ISSUE.{Guid.NewGuid()}", 123);
 
-var consumers = Enumerable.Range(1, 5).Select(SpawnConsumer);
-await Task.WhenAll(consumers);
+var consumers = Enumerable.Range(1, 50).ToDictionary(i => i, SpawnConsumer);
+_ = Task.Run(async () =>
+{
+    while (true)
+    {
+        await Task.Delay(3_000);
+        var hangingConsumers = consumers.Where(c => !c.Value.IsCompleted).Select(c => c.Key).ToList();
+        Console.WriteLine($"--- {hangingConsumers.Count} HANGING CONSUMER(S): {string.Join(", ", hangingConsumers)}");
+    }
+});
+await Task.WhenAll(consumers.Values);
+
 
 async Task SpawnConsumer(int i)
 {
@@ -37,11 +47,11 @@ async Task SpawnConsumer(int i)
     try
     {
         var consumer = await stream.CreateOrUpdateConsumerAsync(new("foo"));
+
         while (true)
         {
-            // NOTE: If `1` is changed to any greater number (including `2`), the problem will go away.
             var anything = false;
-            await foreach (var item in consumer.FetchNoWaitAsync<int>(new() { MaxMsgs = 1 }))
+            await foreach (var item in consumer.FetchNoWaitAsync<int>(new() { MaxMsgs = 1 })) // NOTE: If `1` is changed to any greater number (including `2`), the problem will go away.
             {
                 Console.WriteLine($"({i}) RECEIVED `{item.Subject}`");
                 anything = true;
