@@ -25,34 +25,32 @@ var stream = await jetStream.CreateOrUpdateStreamAsync(new(
     AllowDirect = true,
 });
 
-foreach (var _ in Enumerable.Range(1, 1_000))
+foreach (var _ in Enumerable.Range(1, 10_000))
     await jetStream.PublishAsync($"NATS_HANGING_ISSUE.{Guid.NewGuid()}", 123);
 
-while (true)
-{
-    var cts = new CancellationTokenSource();
-    _ = Task.WhenAll(Enumerable.Range(1, 5).Select(i => SpawnConsumer(i, cts.Token)));
-    Console.ReadLine();
-    cts.Cancel();
-    Console.WriteLine(new string('-', Console.WindowWidth));
-}
+var consumers = Enumerable.Range(1, 5).Select(SpawnConsumer);
+await Task.WhenAll(consumers);
 
-async Task SpawnConsumer(int i, CancellationToken ct)
+async Task SpawnConsumer(int i)
 {
     Console.WriteLine($"({i}) STARTED");
     try
     {
         var consumer = await stream.CreateOrUpdateConsumerAsync(new("foo"));
-        while (!ct.IsCancellationRequested)
+        while (true)
         {
             // NOTE: If `1` is changed to any greater number (including `2`), the problem will go away.
-            var enumerable = consumer.FetchNoWaitAsync<int>(new() { MaxMsgs = 1 }, cancellationToken: ct);
             var anything = false;
-            await foreach (var item in enumerable)
+            await foreach (var item in consumer.FetchNoWaitAsync<int>(new() { MaxMsgs = 1 }))
             {
-                Console.WriteLine($"({i}) RECEIVED: {item}");
+                Console.WriteLine($"({i}) RECEIVED `{item.Subject}`");
                 anything = true;
                 await item.AckAsync();
+            }
+            if (!anything)
+            {
+                Console.WriteLine($"({i}) DONE.");
+                return;
             }
             Console.WriteLine($"({i}) LOOP EXITING (anything? {anything})");
         }
